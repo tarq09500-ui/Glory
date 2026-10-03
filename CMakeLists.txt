@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.15)
+project(Glory CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(RESHADE_DIR "" CACHE PATH "Path to a clone of github.com/crosire/reshade (with submodules)")
+add_library(Glory SHARED src/glory.cpp)
+target_include_directories(Glory PRIVATE src ${RESHADE_DIR}/include ${RESHADE_DIR}/deps/imgui)
+target_link_libraries(Glory PRIVATE comdlg32)
+set_target_properties(Glory PROPERTIES PREFIX "" SUFFIX ".addon64")
