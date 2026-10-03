@@ -17,6 +17,9 @@
 
 #include <cstdio>
 #include <cstring>
+#include <thread>
+#include <atomic>
+#include <mutex>
 
 using namespace reshade::api;
 
@@ -98,22 +101,52 @@ namespace
 		return ok;
 	}
 
-	bool browse_for_image(char *out_utf8, int out_size)
+	std::atomic<bool> g_browsing{ false };
+	std::mutex g_pick_mutex;
+	char g_picked[512] = "";
+	bool g_has_picked = false;
+
+	// يشتغل في thread منفصل عشان ما يعلق رسم اللعبة
+	void browse_thread(HWND owner)
 	{
+		CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 		wchar_t file[1024] = L"";
 		OPENFILENAMEW ofn = {};
 		ofn.lStructSize = sizeof(ofn);
+		ofn.hwndOwner = owner;
 		ofn.lpstrFilter = L"Images (*.png;*.jpg;*.jpeg;*.bmp)\0*.png;*.jpg;*.jpeg;*.bmp\0";
 		ofn.lpstrFile = file;
 		ofn.nMaxFile = 1024;
-		ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-		if (!GetOpenFileNameW(&ofn)) return false;
-		return WideCharToMultiByte(CP_UTF8, 0, file, -1, out_utf8, out_size, nullptr, nullptr) > 0;
+		ofn.Flags = OFN_EXPLORER | OFN_HIDEREADONLY | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+		if (GetOpenFileNameW(&ofn))
+		{
+			char out[512];
+			if (WideCharToMultiByte(CP_UTF8, 0, file, -1, out, sizeof(out), nullptr, nullptr) > 0)
+			{
+				std::lock_guard<std::mutex> lock(g_pick_mutex);
+				std::strcpy(g_picked, out);
+				g_has_picked = true;
+			}
+		}
+		CoUninitialize();
+		g_browsing = false;
 	}
 
 	void draw_overlay(effect_runtime *runtime)
 	{
 		g.dev = runtime->get_device();
+
+		{
+			std::lock_guard<std::mutex> lock(g_pick_mutex);
+			if (g_has_picked)
+			{
+				std::strcpy(g.image_path, g_picked);
+				g_has_picked = false;
+				g.reload = true;
+				g.use_image = true;
+				save_settings();
+			}
+		}
 
 		if (g.reload) { g.reload = false; if (!load_image(g.image_path)) g.use_image = false; }
 
@@ -142,9 +175,10 @@ namespace
 		changed |= ImGui::SliderFloat("Image opacity", &g.image_opacity, 0.05f, 1.0f);
 		ImGui::InputText("Image path", g.image_path, sizeof(g.image_path));
 		ImGui::SameLine();
-		if (ImGui::Button("Browse..."))
+		if (ImGui::Button(g_browsing ? "Browsing..." : "Browse...") && !g_browsing)
 		{
-			if (browse_for_image(g.image_path, sizeof(g.image_path))) { g.reload = true; g.use_image = true; changed = true; }
+			g_browsing = true;
+			std::thread(browse_thread, GetForegroundWindow()).detach();
 		}
 		if (ImGui::Button("Load image")) { g.reload = true; g.use_image = true; changed = true; }
 
