@@ -1,0 +1,19 @@
+name: build-glory
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get ReShade headers
+        run: git clone --depth 1 --recurse-submodules https://github.com/crosire/reshade.git reshade
+      - name: Get stb_image
+        run: curl -L -o src/stb_image.h https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
+      - name: Configure
+        run: cmake -S . -B build -A x64 -DRESHADE_DIR="${{ github.workspace }}/reshade"
+      - name: Build
+        run: cmake --build build --config Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Glory-addon64
+          path: build/Release/Glory.addon64
